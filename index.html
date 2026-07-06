@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Boys Casino — Mines</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+      <div class="header__brand">
+        <span class="header__logo">💎</span>
+        <h1 class="header__title">Mines</h1>
+      </div>
+
+      <div class="header__mode">
+        <button class="mode-btn mode-btn--active" data-mode="demo" id="modeDemo">FUN MODE</button>
+        <button class="mode-btn" data-mode="real" id="modeReal">REAL</button>
+      </div>
+
+      <div class="header__balance">
+        <span class="balance__label">Balance</span>
+        <span class="balance__value" id="balanceDisplay">2,985.0000</span>
+      </div>
+    </header>
+
+    <!-- ===== MAIN GAME AREA ===== -->
+    <main class="game">
+      <!-- Left Panel: Controls -->
+      <aside class="controls">
+        <div class="control-group">
+          <label class="control-label" for="betAmount">Bet Amount</label>
+          <div class="bet-input">
+            <button class="bet-btn" id="betDecrease" aria-label="Decrease bet">−</button>
+            <input type="number" id="betAmount" class="bet-input__field" value="10" min="0.01" step="0.01" />
+            <button class="bet-btn" id="betIncrease" aria-label="Increase bet">+</button>
+          </div>
+          <div class="bet-quick">
+            <button class="bet-quick__btn" data-bet="half">½</button>
+            <button class="bet-quick__btn" data-bet="double">2×</button>
+            <button class="bet-quick__btn" data-bet="max">MAX</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="minesCount">Mines</label>
+          <div class="mines-input">
+            <button class="bet-btn" id="minesDecrease" aria-label="Decrease mines">−</button>
+            <input type="number" id="minesCount" class="mines-input__field" value="3" min="1" max="24" />
+            <button class="bet-btn" id="minesIncrease" aria-label="Increase mines">+</button>
+          </div>
+          <p class="mines-info" id="minesInfo">3 mines · 22 safe tiles</p>
+        </div>
+
+        <div class="stats-panel">
+          <div class="stat">
+            <span class="stat__label">Multiplier</span>
+            <span class="stat__value stat__value--multiplier" id="multiplierDisplay">1.00×</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Profit</span>
+            <span class="stat__value stat__value--profit" id="profitDisplay">0.0000</span>
+          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button class="btn btn--primary" id="startBtn">START GAME</button>
+          <button class="btn btn--secondary" id="randomTileBtn" disabled>PICK RANDOM TILE</button>
+          <button class="btn btn--success" id="cashOutBtn" disabled>CASH OUT</button>
+          <button class="btn btn--outline" id="newRoundBtn" hidden>NEW ROUND</button>
+        </div>
+
+        <div class="provably-fair" id="provablyFairPanel">
+          <button class="provably-fair__toggle" id="pfToggle" aria-expanded="false">
+            🔒 Provably Fair
+          </button>
+          <div class="provably-fair__details" id="pfDetails" hidden>
+            <div class="pf-field">
+              <label>Server Seed Hash</label>
+              <code id="serverSeedHash">—</code>
+            </div>
+            <div class="pf-field">
+              <label>Client Seed</label>
+              <input type="text" id="clientSeed" placeholder="Enter custom seed (optional)" />
+            </div>
+            <div class="pf-field">
+              <label>Nonce</label>
+              <code id="nonceDisplay">0</code>
+            </div>
+            <button class="btn btn--outline btn--sm" id="rotateSeedBtn">Rotate Server Seed</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center: Grid -->
+      <section class="grid-section">
+        <div class="grid-wrapper">
+          <div class="grid" id="gameGrid" role="grid" aria-label="Mines game grid"></div>
+        </div>
+
+        <div class="game-message" id="gameMessage" aria-live="polite"></div>
+
+        <!-- Multiplier Track -->
+        <div class="multiplier-track">
+          <div class="multiplier-track__bar" id="multiplierTrack"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="footer">
+      <div class="footer__mode">
+        <button class="mode-btn mode-btn--active" data-mode="demo" id="modeDemoFooter">DEMO</button>
+        <button class="mode-btn" data-mode="real" id="modeRealFooter">REAL</button>
+      </div>
+      <span class="footer__badge">🔒 Provably Fair Game</span>
+      <span class="footer__credit">The Boys Casino</span>
+    </footer>
+  </div>
+
+  <script src="js/game.js"></script>
+</body>
+</html>
