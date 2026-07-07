@@ -26,6 +26,32 @@ const COL = {
   ghost: '#4a1515',
 };
 
+const _rgb = new THREE.Color();
+
+/* Blue-only wave — hue locked to cyan→navy, brightness sweeps diagonally. */
+const WAVELEN = 16;
+const WAVE_SPEED = 1.6;
+
+function sampleWave(x, z, t, offset = 0) {
+  const u = (x * 0.55 + z * 0.48 + offset - t * WAVE_SPEED) / WAVELEN;
+  const phase = ((u % 1) + 1) % 1;
+  const crest = (Math.cos(u * Math.PI * 2) + 1) * 0.5;
+  return { phase, crest };
+}
+
+function rgbWave(x, z, t, offset = 0) {
+  const { phase, crest } = sampleWave(x, z, t, offset);
+  const hue = 0.54 + phase * 0.1; // cyan → deep blue only
+  const sat = 0.6 + crest * 0.35;
+  const lit = 0.14 + phase * 0.22 + crest * 0.38;
+  _rgb.setHSL(hue, sat, lit);
+  return _rgb;
+}
+
+function waveIntensity(x, z, t, offset = 0) {
+  return 0.4 + sampleWave(x, z, t, offset).crest * 1.2;
+}
+
 /** Flatten KB_ROWS into positioned key descriptors (index matches BOARD_KEYS order). */
 function useLayout() {
   return useMemo(() => {
@@ -48,6 +74,7 @@ function useLayout() {
           w,
           x: x + w / 2,
           z: ri * ROW_ADV - totalD / 2 + KEY_D / 2,
+          ri,
         });
         flatIndex += 1;
         x += w + GAP;
@@ -131,12 +158,13 @@ function MineBurst() {
 }
 
 /**
- * One 3D keycap: press dip, reveal colors, gem/burst effects,
+ * One 3D keycap with RGB underglow wave, press dip, reveal colours,
  * and free-flight physics when the board explodes.
- * Every key on the board is playable; the cream/grey split is cosmetic.
  */
 function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
   const group = useRef();
+  const capMat = useRef();
+  const glowMat = useRef();
   const isAlphaLook = k.def.l.length === 1;
   const ended = gameStatus === 'gameover' || gameStatus === 'cashedout';
 
@@ -144,30 +172,28 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
   const [burstKey, setBurstKey] = useState(0);
   const prevRevealed = useRef(false);
 
-  /* physics state for the explosion flight */
   const phys = useRef({ active: false, v: new THREE.Vector3(), av: new THREE.Vector3() });
   const pressT = useRef(-1);
 
-  /* trigger press dip on matching press signal */
   useEffect(() => {
     if (pressed && pressed.keyId === k.keyId) pressT.current = performance.now();
   }, [pressed, k.keyId]);
 
-  /* reveal side-effects: gem for safe, burst for mine */
   useEffect(() => {
-    const revealed = !!slot?.isRevealed;
-    if (revealed && !prevRevealed.current) {
+    const rev = !!slot?.isRevealed;
+    if (rev && !prevRevealed.current) {
       if (slot.isMine) setBurstKey((n) => n + 1);
       else setGemKey((n) => n + 1);
     }
-    prevRevealed.current = revealed;
+    prevRevealed.current = rev;
   }, [slot?.isRevealed, slot?.isMine]);
 
-  useFrame((_, rawDt) => {
+  useFrame(({ clock }, rawDt) => {
     const g = group.current;
     if (!g) return;
     const dt = Math.min(rawDt, 0.05);
     const p = phys.current;
+    const t = clock.elapsedTime;
 
     if (exploded) {
       if (!p.active) {
@@ -181,7 +207,6 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
       g.rotation.y += p.av.y * dt;
       g.rotation.z += p.av.z * dt;
 
-      // bounce off the desk with damping
       if (g.position.y < DESK_Y + KEY_H / 2 && p.v.y < 0) {
         g.position.y = DESK_Y + KEY_H / 2;
         if (Math.abs(p.v.y) > 1) {
@@ -198,19 +223,31 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
     }
 
     if (p.active) {
-      // board reassembled: snap back to home position
       p.active = false;
       g.position.set(k.x, KEY_H / 2, k.z);
       g.rotation.set(0, 0, 0);
     }
 
-    // press dip animation
     const since = pressT.current < 0 ? Infinity : (performance.now() - pressT.current) / 1000;
     const targetY = since < 0.12 ? KEY_H / 2 - 0.16 : KEY_H / 2;
     g.position.y += (targetY - g.position.y) * Math.min(1, dt * 30);
+
+    /* RGB wave on unrevealed keys */
+    if (!slot?.isRevealed && capMat.current && glowMat.current) {
+      const c = rgbWave(k.x, k.z, t);
+      const glow = waveIntensity(k.x, k.z, t);
+      glowMat.current.emissive.copy(c);
+      glowMat.current.emissiveIntensity = glow;
+      glowMat.current.color.copy(c).multiplyScalar(0.3);
+
+      const base = new THREE.Color(isAlphaLook ? COL.alphaFace : COL.decoFace);
+      capMat.current.color.copy(base).lerp(c, 0.18);
+      capMat.current.emissive.copy(c);
+      capMat.current.emissiveIntensity = 0.15 + glow * 0.22;
+    }
   });
 
-  /* face color */
+  /* static face colours for revealed / ended states */
   let face = isAlphaLook ? COL.alphaFace : COL.decoFace;
   let legend = isAlphaLook ? COL.alphaLegend : COL.decoLegend;
   let emissive = '#000000';
@@ -237,6 +274,20 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
 
   return (
     <group ref={group} position={[k.x, KEY_H / 2, k.z]}>
+      {/* per-key RGB underglow pad */}
+      {!slot?.isRevealed && (
+        <mesh position={[0, -KEY_H / 2 - 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[k.w * 0.88, KEY_D * 0.88]} />
+          <meshStandardMaterial
+            ref={glowMat}
+            transparent
+            opacity={0.92}
+            roughness={0.2}
+            metalness={0.1}
+          />
+        </mesh>
+      )}
+
       <RoundedBox
         args={[k.w, KEY_H, KEY_D]}
         radius={0.07}
@@ -246,6 +297,7 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
         {...clickProps}
       >
         <meshStandardMaterial
+          ref={capMat}
           color={face}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
@@ -253,6 +305,7 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
           metalness={0.08}
         />
       </RoundedBox>
+
       <Text
         position={[0, KEY_H / 2 + 0.011, 0.06]}
         rotation={[-Math.PI / 2, 0, 0]}
@@ -263,6 +316,7 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
       >
         {label}
       </Text>
+
       {gemKey > 0 && !exploded && slot?.isRevealed && !slot.isMine && (
         <Gem key={gemKey} startY={KEY_H} />
       )}
@@ -271,38 +325,138 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
   );
 }
 
-function Rig({ maxW, totalD }) {
+/** Keyboard chassis — top-down visible bezel ring + side walls + blue underglow strip. */
+function KeyboardFrame({ maxW, totalD }) {
+  const stripFront = useRef();
+  const stripBack = useRef();
+  const stripLeft = useRef();
+  const stripRight = useRef();
+
+  const bezelW = 0.58;          // visible mat width around keys (bird's-eye)
+  const outerW = maxW + bezelW * 2 + 0.5;
+  const outerD = totalD + bezelW * 2 + 0.5;
+  const innerW = maxW + 0.28;
+  const innerD = totalD + 0.28;
+  const deckY = 0.06;           // top of frame deck (just below keycap bases)
+  const deckH = 0.22;
+  const wallH = 0.75;
+  const baseH = 0.45;
+
+  const stripPos = useMemo(() => ([
+    { x: 0, z: outerD / 2 },
+    { x: 0, z: -outerD / 2 },
+    { x: -outerW / 2, z: 0 },
+    { x: outerW / 2, z: 0 },
+  ]), [outerW, outerD]);
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    [stripFront, stripBack, stripLeft, stripRight].forEach((ref, i) => {
+      if (!ref.current) return;
+      const { x, z } = stripPos[i];
+      const c = rgbWave(x, z, t);
+      ref.current.emissive.copy(c);
+      ref.current.color.copy(c).multiplyScalar(0.3);
+      ref.current.emissiveIntensity = waveIntensity(x, z, t);
+    });
+  });
+
+  const frameMat = <meshStandardMaterial color="#3d4a5c" roughness={0.32} metalness={0.55} />;
+  const shellMat = <meshStandardMaterial color="#252c38" roughness={0.28} metalness={0.65} />;
+  const recessMat = <meshStandardMaterial color="#0a0d12" roughness={0.85} metalness={0.15} />;
+
+  const zFront = innerD / 2 + bezelW / 2;
+  const zBack = -innerD / 2 - bezelW / 2;
+  const xLeft = -innerW / 2 - bezelW / 2;
+  const xRight = innerW / 2 + bezelW / 2;
+
   return (
-    <>
-      <ambientLight intensity={0.55} />
-      <directionalLight
-        position={[6, 12, 6]}
-        intensity={1.4}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-14}
-        shadow-camera-right={14}
-        shadow-camera-top={14}
-        shadow-camera-bottom={-14}
-      />
-      {/* RGB accent lights */}
-      <pointLight position={[-maxW / 2, 2.5, totalD]} intensity={14} color="#00e5ff" distance={14} />
-      <pointLight position={[maxW / 2, 2.5, totalD]} intensity={14} color="#d500f9" distance={14} />
-
-      {/* mounting plate */}
-      <mesh position={[0, -0.16, 0]} receiveShadow>
-        <boxGeometry args={[maxW + 0.7, 0.3, totalD + 0.7]} />
-        <meshStandardMaterial color="#141414" roughness={0.6} metalness={0.3} />
+    <group>
+      {/* bottom chassis block */}
+      <mesh position={[0, -baseH / 2 - 0.32, 0]} castShadow receiveShadow>
+        <boxGeometry args={[outerW + 0.4, baseH, outerD + 0.4]} />
+        {shellMat}
       </mesh>
 
-      {/* case with brass trim */}
-      <mesh position={[0, -0.46, 0]} receiveShadow castShadow>
-        <boxGeometry args={[maxW + 1.3, 0.42, totalD + 1.3]} />
-        <meshStandardMaterial color="#1c1c1c" roughness={0.35} metalness={0.5} />
+      {/* === TOP-VISIBLE BEZEL RING (picture-frame mat around keys) === */}
+      {/* front rail */}
+      <mesh position={[0, deckY, zFront]} castShadow receiveShadow>
+        <boxGeometry args={[outerW, deckH, bezelW]} />
+        {frameMat}
       </mesh>
-      <mesh position={[0, -0.31, 0]}>
-        <boxGeometry args={[maxW + 1.34, 0.05, totalD + 1.34]} />
-        <meshStandardMaterial color="#b8860b" roughness={0.25} metalness={0.9} />
+      {/* back rail */}
+      <mesh position={[0, deckY, zBack]} castShadow receiveShadow>
+        <boxGeometry args={[outerW, deckH, bezelW]} />
+        {frameMat}
+      </mesh>
+      {/* left rail */}
+      <mesh position={[xLeft, deckY, 0]} castShadow receiveShadow>
+        <boxGeometry args={[bezelW, deckH, innerD]} />
+        {frameMat}
+      </mesh>
+      {/* right rail */}
+      <mesh position={[xRight, deckY, 0]} castShadow receiveShadow>
+        <boxGeometry args={[bezelW, deckH, innerD]} />
+        {frameMat}
+      </mesh>
+
+      {/* brass outer trim — visible gold edge from above */}
+      <mesh position={[0, deckY + deckH / 2 + 0.018, 0]}>
+        <boxGeometry args={[outerW + 0.1, 0.035, outerD + 0.1]} />
+        <meshStandardMaterial color="#c9a020" roughness={0.18} metalness={0.95} />
+      </mesh>
+
+      {/* recessed switch well where keys sit */}
+      <mesh position={[0, deckY - deckH / 2 - 0.04, 0]} receiveShadow>
+        <boxGeometry args={[innerW, 0.1, innerD]} />
+        {recessMat}
+      </mesh>
+
+      {/* === SIDE WALLS (visible with slight camera tilt) === */}
+      <mesh position={[0, deckY - wallH / 2 + 0.04, outerD / 2 + 0.06]} castShadow>
+        <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
+        {shellMat}
+      </mesh>
+      <mesh position={[0, deckY - wallH / 2 + 0.04, -outerD / 2 - 0.06]} castShadow>
+        <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
+        {shellMat}
+      </mesh>
+      <mesh position={[-outerW / 2 - 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
+        <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
+        {shellMat}
+      </mesh>
+      <mesh position={[outerW / 2 + 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
+        <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
+        {shellMat}
+      </mesh>
+
+      {/* corner screw posts on bezel */}
+      {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz], i) => (
+        <mesh
+          key={i}
+          position={[sx * (outerW / 2 - 0.22), deckY + 0.02, sz * (outerD / 2 - 0.22)]}
+        >
+          <cylinderGeometry args={[0.07, 0.07, 0.05, 12]} />
+          <meshStandardMaterial color="#1a2030" roughness={0.25} metalness={0.85} />
+        </mesh>
+      ))}
+
+      {/* blue underglow strips on frame underside */}
+      <mesh position={[0, deckY - deckH / 2 - 0.06, outerD / 2 + 0.04]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[outerW * 0.94, 0.09]} />
+        <meshStandardMaterial ref={stripFront} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[0, deckY - deckH / 2 - 0.06, -outerD / 2 - 0.04]} rotation={[-Math.PI / 2, 0, Math.PI]}>
+        <planeGeometry args={[outerW * 0.94, 0.09]} />
+        <meshStandardMaterial ref={stripBack} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[-outerW / 2 - 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
+        <planeGeometry args={[outerD * 0.94, 0.09]} />
+        <meshStandardMaterial ref={stripLeft} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[outerW / 2 + 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]}>
+        <planeGeometry args={[outerD * 0.94, 0.09]} />
+        <meshStandardMaterial ref={stripRight} transparent opacity={0.95} />
       </mesh>
 
       {/* desk */}
@@ -310,16 +464,36 @@ function Rig({ maxW, totalD }) {
         <planeGeometry args={[90, 90]} />
         <meshStandardMaterial color="#0a0a0a" roughness={0.9} />
       </mesh>
+    </group>
+  );
+}
+
+function Rig({ maxW, totalD }) {
+  return (
+    <>
+      <ambientLight intensity={0.38} />
+      <directionalLight
+        position={[6, 14, 5]}
+        intensity={1.2}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-14}
+        shadow-camera-right={14}
+        shadow-camera-top={14}
+        shadow-camera-bottom={-14}
+      />
+      <pointLight position={[0, 8, 4]} intensity={0.35} color="#ffffff" />
+      <KeyboardFrame maxW={maxW} totalD={totalD} />
     </>
   );
 }
 
-/** Fixed bird's-eye camera — no user orbiting. */
+/** Fixed bird's-eye camera — slight forward tilt so frame walls are visible. */
 function BirdsEyeCamera() {
   const { camera } = useThree();
   useEffect(() => {
-    camera.position.set(0, 16.5, 2.6);
-    camera.lookAt(0, 0, 0.2);
+    camera.position.set(0, 14.8, 4.2);
+    camera.lookAt(0, 0, 0.1);
   }, [camera]);
   return null;
 }
