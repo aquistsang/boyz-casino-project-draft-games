@@ -1,20 +1,36 @@
+import { useRef } from 'react';
+
 export default function Track({ track, safeRevealed, gameStatus }) {
+  const barRef = useRef(null);
+
+  const scroll = (dir) => {
+    barRef.current?.scrollBy({ left: dir * 140, behavior: 'smooth' });
+  };
+
   return (
     <div className="track">
-      <div className="track__lbl">MULTIPLIER · BRASS WEIGHT BAR</div>
-      <div className="track__bar">
-        {track.map((node) => {
-          let cls = 'tick';
-          if (safeRevealed > node.reveals) cls += ' tick--passed';
-          if (gameStatus === 'playing' && safeRevealed === node.reveals) cls += ' tick--on';
+      <button type="button" className="track__nav" onClick={() => scroll(-1)} aria-label="Scroll left">
+        ‹
+      </button>
+
+      <div className="track__bar" ref={barRef}>
+        {track.map((node, i) => {
+          let cls = 'track-pill';
+          if (safeRevealed > node.reveals) cls += ' track-pill--passed';
+          if (gameStatus === 'playing' && safeRevealed === node.reveals) cls += ' track-pill--on';
+
           return (
-            <div className={cls} key={node.reveals}>
-              <div className="tick__dot" />
-              <span className="tick__lbl">{node.mult.toFixed(2)}×</span>
-            </div>
+            <span className="track__item" key={node.reveals}>
+              {i > 0 && <span className="track__sep">›</span>}
+              <span className={cls}>{node.mult.toFixed(2)}x</span>
+            </span>
           );
         })}
       </div>
+
+      <button type="button" className="track__nav" onClick={() => scroll(1)} aria-label="Scroll right">
+        ›
+      </button>
     </div>
   );
 }

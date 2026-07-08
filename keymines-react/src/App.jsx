@@ -1,25 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PHYS_MAP, ALL_LABELS, BOARD_KEYS } from './config.js';
 import { clickSound, safeSound, explosionSound, winSound } from './audio.js';
 import { useGame, calcMult } from './hooks/useGame.js';
 import OledBar from './components/OledBar.jsx';
+import StatsBar from './components/StatsBar.jsx';
 import KeyboardScene from './three/KeyboardScene.jsx';
 import Track from './components/Track.jsx';
 import Actions from './components/Actions.jsx';
 import FairPanel from './components/FairPanel.jsx';
-import { Confetti, CenterPops, Banner } from './components/Effects.jsx';
+import InstructionsModal from './components/InstructionsModal.jsx';
+import { Confetti, CenterPops, Banner, DiamondCounter, FlyingDiamonds } from './components/Effects.jsx';
 
 let effectId = 0;
 
 export default function App() {
   const game = useGame();
   const chassisRef = useRef(null);
+  const stageRef = useRef(null);
+  const keyPositionsRef = useRef({});
+  const [showInstructions, setShowInstructions] = useState(true);
   const [confetti, setConfetti] = useState([]);
   const [shaking, setShaking] = useState(false);
   const [exploded, setExploded] = useState(false);
   const [pops, setPops] = useState([]);
   const [banner, setBanner] = useState(null);
   const [pressed, setPressed] = useState(null); // { keyId, id } press signal for the 3D keys
+  const [diamondFlights, setDiamondFlights] = useState([]);
+  const [diamondCount, setDiamondCount] = useState(0);
+
+  const closeInstructions = () => {
+    setShowInstructions(false);
+  };
 
   const spawnPop = (text) => {
     const pop = { id: ++effectId, text };
@@ -48,6 +60,31 @@ export default function App() {
     }, 900);
   };
 
+  const spawnDiamond = (keyId) => {
+    const stage = stageRef.current?.getBoundingClientRect();
+    const from = keyPositionsRef.current[keyId];
+    if (!stage) return;
+
+    const sx = from ? from.x - stage.left : stage.width * 0.5;
+    const sy = from ? from.y - stage.top : stage.height * 0.55;
+    const ex = 28;
+    const ey = 28;
+
+    const flight = {
+      id: ++effectId,
+      sx,
+      sy,
+      dx: ex - sx,
+      dy: ey - sy,
+    };
+    setDiamondFlights((f) => [...f, flight]);
+  };
+
+  const onDiamondLand = useCallback((id) => {
+    setDiamondFlights((f) => f.filter((x) => x.id !== id));
+    setDiamondCount((n) => n + 1);
+  }, []);
+
   /* --- unified key press (mouse click on 3D key + physical keyboard) --- */
   const handlePress = useCallback((keyId) => {
     setPressed({ keyId, id: ++effectId });
@@ -60,6 +97,7 @@ export default function App() {
     const outcome = game.reveal(keyId);
     if (outcome === 'safe') {
       safeSound();
+      spawnDiamond(keyId);
       spawnPop(`${calcMult(game.safeRevealed + 1, game.minesCount).toFixed(2)}×`);
     } else if (outcome === 'mine') {
       explosionSound();
@@ -123,6 +161,11 @@ export default function App() {
     if (game.gameStatus === 'idle' || game.gameStatus === 'playing') {
       setExploded(false);
     }
+
+    if (game.gameStatus === 'idle' || (game.gameStatus === 'playing' && prev !== 'playing')) {
+      setDiamondCount(0);
+      setDiamondFlights([]);
+    }
   }, [game.gameStatus]);
 
   const profit =
@@ -138,32 +181,36 @@ export default function App() {
         data-state={game.gameStatus}
       >
         <OledBar
-          bet={game.bet}
-          setBet={game.setBet}
-          minesCount={game.minesCount}
-          setMines={game.setMines}
           mode={game.mode}
           setMode={game.setMode}
-          balance={game.balance}
-          multiplier={game.multiplier}
-          profit={profit}
+          minesCount={game.minesCount}
           gameStatus={game.gameStatus}
           safeRevealed={game.safeRevealed}
+          onShowInstructions={() => setShowInstructions(true)}
         />
 
-        <KeyboardScene
-          grid={game.grid}
-          gameStatus={game.gameStatus}
-          exploded={exploded}
-          pressed={pressed}
-          onPress={handlePress}
-        />
+        <Track track={game.track} safeRevealed={game.safeRevealed} gameStatus={game.gameStatus} />
+
+        <div className="kb-stage" ref={stageRef}>
+          <DiamondCounter count={diamondCount} />
+          <FlyingDiamonds flights={diamondFlights} onLand={onDiamondLand} />
+          <div className="kb-pop-zone">
+            <CenterPops pops={pops} />
+            <Banner banner={banner} />
+          </div>
+          <KeyboardScene
+            grid={game.grid}
+            gameStatus={game.gameStatus}
+            exploded={exploded}
+            pressed={pressed}
+            onPress={handlePress}
+            keyPositionsRef={keyPositionsRef}
+          />
+        </div>
 
         <p className={`msg${game.message.type ? ` msg--${game.message.type}` : ''}`}>
           {game.message.text}
         </p>
-
-        <Track track={game.track} safeRevealed={game.safeRevealed} gameStatus={game.gameStatus} />
 
         <Actions
           gameStatus={game.gameStatus}
@@ -178,14 +225,25 @@ export default function App() {
           onNewRound={() => { clickSound(); game.newRound(); }}
         />
 
-        <div className="brass-weight">KEYMINES · MECHANICAL · TRUE 3D</div>
+        <StatsBar
+          bet={game.bet}
+          setBet={game.setBet}
+          minesCount={game.minesCount}
+          setMines={game.setMines}
+          balance={game.balance}
+          multiplier={game.multiplier}
+          profit={profit}
+          gameStatus={game.gameStatus}
+        />
         <div className="rgb" />
         <FairPanel game={game} />
       </div>
 
       <Confetti pieces={confetti} />
-      <CenterPops pops={pops} />
-      <Banner banner={banner} />
+      {showInstructions && createPortal(
+        <InstructionsModal onClose={closeInstructions} />,
+        document.body
+      )}
     </>
   );
 }

@@ -19,8 +19,8 @@ const COL = {
   alphaLegend: '#3a342a',
   decoFace: '#55565a',
   decoLegend: '#c8c9cd',
-  safe: '#4bc47e',
-  safeEmissive: '#00e676',
+  used: '#c8c4b8',
+  usedDeco: '#4a4b4f',
   mine: '#c62828',
   mineEmissive: '#ff1744',
   ghost: '#4a1515',
@@ -84,41 +84,6 @@ function useLayout() {
   }, []);
 }
 
-/** Rising, spinning diamond above a safely revealed key. */
-function Gem({ startY }) {
-  const ref = useRef();
-  const matRef = useRef();
-  const t0 = useRef(null);
-
-  useFrame(({ clock }) => {
-    if (t0.current === null) t0.current = clock.elapsedTime;
-    const t = clock.elapsedTime - t0.current;
-    const k = Math.min(t / 1.1, 1);
-    if (ref.current) {
-      ref.current.position.y = startY + k * 1.5;
-      ref.current.rotation.y += 0.08;
-      const s = 0.22 * (k < 0.2 ? k / 0.2 : 1);
-      ref.current.scale.setScalar(s);
-    }
-    if (matRef.current) matRef.current.opacity = k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1;
-  });
-
-  return (
-    <mesh ref={ref} position-y={startY}>
-      <octahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial
-        ref={matRef}
-        color="#7de8a8"
-        emissive="#00e676"
-        emissiveIntensity={1.4}
-        transparent
-        roughness={0.1}
-        metalness={0.3}
-      />
-    </mesh>
-  );
-}
-
 /** Fiery debris burst where a mine detonates. */
 function MineBurst() {
   const COUNT = 16;
@@ -168,7 +133,6 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
   const isAlphaLook = k.def.l.length === 1;
   const ended = gameStatus === 'gameover' || gameStatus === 'cashedout';
 
-  const [gemKey, setGemKey] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
   const prevRevealed = useRef(false);
 
@@ -181,9 +145,8 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
 
   useEffect(() => {
     const rev = !!slot?.isRevealed;
-    if (rev && !prevRevealed.current) {
-      if (slot.isMine) setBurstKey((n) => n + 1);
-      else setGemKey((n) => n + 1);
+    if (rev && !prevRevealed.current && slot.isMine) {
+      setBurstKey((n) => n + 1);
     }
     prevRevealed.current = rev;
   }, [slot?.isRevealed, slot?.isMine]);
@@ -259,7 +222,9 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
       if (slot.isMine) {
         face = COL.mine; emissive = COL.mineEmissive; emissiveIntensity = 0.6; legend = '#ffdddd';
       } else {
-        face = COL.safe; emissive = COL.safeEmissive; emissiveIntensity = 0.45; legend = '#0d3a20';
+        /* Safe: muted used key — diamond flies to HUD instead of green glow */
+        face = isAlphaLook ? COL.used : COL.usedDeco;
+        legend = isAlphaLook ? '#6a645a' : '#9a9b9f';
       }
     } else if (ended && slot.isMine) {
       face = COL.ghost; legend = '#c98080';
@@ -317,12 +282,30 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
         {label}
       </Text>
 
-      {gemKey > 0 && !exploded && slot?.isRevealed && !slot.isMine && (
-        <Gem key={gemKey} startY={KEY_H} />
-      )}
       {burstKey > 0 && <MineBurst key={burstKey} />}
     </group>
   );
+}
+
+/** Project each key’s world position into viewport pixels for HUD diamond flights. */
+function KeyProjector({ keys, positionsRef }) {
+  const { camera, gl } = useThree();
+  const tmp = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame(() => {
+    const rect = gl.domElement.getBoundingClientRect();
+    const map = {};
+    keys.forEach((k) => {
+      tmp.set(k.x, KEY_H * 0.9, k.z).project(camera);
+      map[k.keyId] = {
+        x: (tmp.x * 0.5 + 0.5) * rect.width + rect.left,
+        y: (-tmp.y * 0.5 + 0.5) * rect.height + rect.top,
+      };
+    });
+    positionsRef.current = map;
+  });
+
+  return null;
 }
 
 /** Keyboard chassis — top-down visible bezel ring + side walls + blue underglow strip. */
@@ -462,7 +445,7 @@ function KeyboardFrame({ maxW, totalD }) {
       {/* desk */}
       <mesh position={[0, DESK_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[90, 90]} />
-        <meshStandardMaterial color="#0a0a0a" roughness={0.9} />
+        <meshStandardMaterial color="#e4e6ec" roughness={0.85} />
       </mesh>
     </group>
   );
@@ -471,10 +454,11 @@ function KeyboardFrame({ maxW, totalD }) {
 function Rig({ maxW, totalD }) {
   return (
     <>
-      <ambientLight intensity={0.38} />
+      <ambientLight intensity={0.65} color="#ffffff" />
       <directionalLight
         position={[6, 14, 5]}
-        intensity={1.2}
+        intensity={1.15}
+        color="#ffffff"
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-14}
@@ -482,32 +466,44 @@ function Rig({ maxW, totalD }) {
         shadow-camera-top={14}
         shadow-camera-bottom={-14}
       />
-      <pointLight position={[0, 8, 4]} intensity={0.35} color="#ffffff" />
+      <pointLight position={[0, 8, 4]} intensity={0.25} color="#ffffff" />
       <KeyboardFrame maxW={maxW} totalD={totalD} />
     </>
   );
 }
 
-/** Fixed bird's-eye camera — slight forward tilt so frame walls are visible. */
-function BirdsEyeCamera() {
+/** Auto-fit camera so the full keyboard + frame is visible (desk-wide shot). */
+function FitCamera({ maxW, totalD }) {
   const { camera } = useThree();
   useEffect(() => {
-    camera.position.set(0, 14.8, 4.2);
-    camera.lookAt(0, 0, 0.1);
-  }, [camera]);
+    const halfW = maxW / 2 + 1.05;
+    const halfD = totalD / 2 + 1.25;
+    const span = Math.max(halfW, halfD);
+    const zoom = 0.85; // 15% closer
+    // Higher Y, lower Z → flatter bird's-eye (not straight down)
+    camera.position.set(0, span * 2.2 * zoom, span * 0.38 * zoom);
+    camera.lookAt(0, 0, 0);
+    if (camera.isPerspectiveCamera) {
+      camera.fov = 36;
+      camera.updateProjectionMatrix();
+    }
+  }, [camera, maxW, totalD]);
   return null;
 }
 
-export default function KeyboardScene({ grid, gameStatus, exploded, pressed, onPress }) {
+export default function KeyboardScene({
+  grid, gameStatus, exploded, pressed, onPress, keyPositionsRef,
+}) {
   const { keys, maxW, totalD } = useLayout();
 
   return (
     <div className="kb3d">
-      <Canvas shadows camera={{ fov: 34 }} dpr={[1, 2]}>
-        <color attach="background" args={['#0c0c0c']} />
-        <fog attach="fog" args={['#0c0c0c', 25, 55]} />
-        <BirdsEyeCamera />
+      <Canvas shadows camera={{ fov: 36, near: 0.1, far: 120 }} dpr={[1, 2]}>
+        <color attach="background" args={['#f0f1f5']} />
+        <fog attach="fog" args={['#f0f1f5', 35, 75]} />
+        <FitCamera maxW={maxW} totalD={totalD} />
         <Rig maxW={maxW} totalD={totalD} />
+        {keyPositionsRef && <KeyProjector keys={keys} positionsRef={keyPositionsRef} />}
         {keys.map((k) => (
           <Keycap
             key={k.id}
