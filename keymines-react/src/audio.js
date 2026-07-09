@@ -79,7 +79,7 @@ function synthExplosion() {
     lp.frequency.exponentialRampToValueAtTime(60, t + 0.5);
 
     const nGain = ctx.createGain();
-    nGain.gain.setValueAtTime(0.9, t);
+    nGain.gain.setValueAtTime(0.42, t);
     nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
 
     noise.connect(lp); lp.connect(nGain); nGain.connect(ctx.destination);
@@ -92,7 +92,7 @@ function synthExplosion() {
     osc.frequency.exponentialRampToValueAtTime(35, t + 0.4);
 
     const oGain = ctx.createGain();
-    oGain.gain.setValueAtTime(0.6, t);
+    oGain.gain.setValueAtTime(0.28, t);
     oGain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
 
     osc.connect(oGain); oGain.connect(ctx.destination);
@@ -140,7 +140,7 @@ export function safeSound() {
 export function explosionSound() {
   try {
     const a = explosionSample.cloneNode();
-    a.volume = 0.85;
+    a.volume = 0.42;
     a.play().catch(() => synthExplosion());
   } catch (_) {
     synthExplosion();

@@ -46,7 +46,6 @@ export default function InstructionsModal({ onClose }) {
       <div className="instr-modal" onClick={(e) => e.stopPropagation()}>
         <header className="instr-header">
           <h1 className="instr-title">KEYMINES</h1>
-          <p className="instr-sub">MECHANICAL EDITION™</p>
         </header>
 
         <div className="instr-panels">

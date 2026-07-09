@@ -10,8 +10,7 @@ export default function OledBar({ mode, setMode, minesCount, gameStatus, safeRev
   return (
     <div className="oled-bar oled-bar--compact">
       <div className="brand">
-        <h1>KeyMines 65%</h1>
-        <p>Mechanical Edition</p>
+        <h1>KeyMines</h1>
       </div>
 
       <span className="hint hint--center">{hint}</span>

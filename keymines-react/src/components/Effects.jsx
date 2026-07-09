@@ -1,5 +1,5 @@
 /** Screen-level overlays: multiplier pops, outcome banners, confetti, diamond flights. */
-const CONFETTI_COLORS = ['#00e676', '#d4af37', '#00bcd4', '#e8e0d5'];
+const CONFETTI_COLORS = ['#22d3ee', '#facc15', '#f43f5e', '#a855f7'];
 
 /** Big multiplier pop in the middle of the screen after each safe reveal. */
 export function CenterPops({ pops }) {

@@ -5,7 +5,7 @@ import { clickSound, safeSound, explosionSound, winSound } from './audio.js';
 import { useGame, calcMult } from './hooks/useGame.js';
 import OledBar from './components/OledBar.jsx';
 import StatsBar from './components/StatsBar.jsx';
-import KeyboardScene from './three/KeyboardScene.jsx';
+import Keyboard from './components/Keyboard.jsx';
 import Track from './components/Track.jsx';
 import Actions from './components/Actions.jsx';
 import FairPanel from './components/FairPanel.jsx';
@@ -171,10 +171,8 @@ export default function App() {
 
     if (game.gameStatus === 'gameover' && prev !== 'gameover') {
       showBanner('💥 BOOM!', 'lose');
-      // Let the mine burst land, then blow the whole keyboard apart
       const t = setTimeout(() => {
         setExploded(true);
-        explosionSound();
         setShaking(true);
         setTimeout(() => setShaking(false), 500);
       }, 600);
@@ -225,10 +223,9 @@ export default function App() {
             <CenterPops pops={pops} />
             <Banner banner={banner} />
           </div>
-          <KeyboardScene
+          <Keyboard
             grid={game.grid}
             gameStatus={game.gameStatus}
-            exploded={exploded}
             pressed={pressed}
             onPress={handlePress}
             keyPositionsRef={keyPositionsRef}
