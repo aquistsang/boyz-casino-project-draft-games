@@ -7,7 +7,7 @@ const MINE_PRESETS = [1, 3, 5, 7];
 
 /** Bottom stats strip — bet, mines, balance, multiplier, profit. */
 export default function StatsBar({
-  bet, setBet, minesCount, setMines,
+  bet, setBet, minesCount, setMines, totalKeys,
   balance, multiplier, profit, gameStatus,
 }) {
   const playing = gameStatus === 'playing';
@@ -85,7 +85,7 @@ export default function StatsBar({
                 type="number"
                 value={minesCount}
                 min={1}
-                max={CONFIG.totalKeys - 1}
+                max={totalKeys - 1}
                 disabled={playing}
                 onChange={(e) => setMines(+e.target.value)}
               />

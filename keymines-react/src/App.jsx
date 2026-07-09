@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PHYS_MAP, ALL_LABELS, BOARD_KEYS } from './config.js';
+import { getLayout } from './config.js';
 import { clickSound, safeSound, explosionSound, winSound } from './audio.js';
 import { useGame, calcMult } from './hooks/useGame.js';
 import OledBar from './components/OledBar.jsx';
@@ -10,47 +10,32 @@ import Track from './components/Track.jsx';
 import Actions from './components/Actions.jsx';
 import FairPanel from './components/FairPanel.jsx';
 import InstructionsModal from './components/InstructionsModal.jsx';
-import { useIsMobile, useIsPortrait, useLowPower } from './hooks/useMedia.js';
-import { Confetti, CenterPops, Banner, DiamondCounter, FlyingDiamonds, RotateHint } from './components/Effects.jsx';
-
-const ROTATE_HINT_KEY = 'keymines-dismiss-rotate-hint';
+import { useIsMobile, useLowPower } from './hooks/useMedia.js';
+import { Confetti, CenterPops, Banner, DiamondCounter, FlyingDiamonds } from './components/Effects.jsx';
 
 let effectId = 0;
 
 export default function App() {
-  const game = useGame();
+  const isMobile = useIsMobile();
+  const layout = useMemo(() => getLayout(isMobile), [isMobile]);
+  const game = useGame(layout);
   const chassisRef = useRef(null);
   const stageRef = useRef(null);
   const keyPositionsRef = useRef({});
-  const isMobile = useIsMobile();
-  const isPortrait = useIsPortrait();
   const lowPower = useLowPower();
   const [showInstructions, setShowInstructions] = useState(true);
-  const [showRotateHint, setShowRotateHint] = useState(
-    () => isMobile && isPortrait && !localStorage.getItem(ROTATE_HINT_KEY)
-  );
   const [confetti, setConfetti] = useState([]);
   const [shaking, setShaking] = useState(false);
   const [exploded, setExploded] = useState(false);
   const [pops, setPops] = useState([]);
   const [banner, setBanner] = useState(null);
-  const [pressed, setPressed] = useState(null); // { keyId, id } press signal for the 3D keys
+  const [pressed, setPressed] = useState(null);
   const [diamondFlights, setDiamondFlights] = useState([]);
   const [diamondCount, setDiamondCount] = useState(0);
 
   const closeInstructions = () => {
     setShowInstructions(false);
   };
-
-  const dismissRotateHint = () => {
-    localStorage.setItem(ROTATE_HINT_KEY, '1');
-    setShowRotateHint(false);
-  };
-
-  useEffect(() => {
-    if (!isMobile || !isPortrait) setShowRotateHint(false);
-    else if (!localStorage.getItem(ROTATE_HINT_KEY)) setShowRotateHint(true);
-  }, [isMobile, isPortrait]);
 
   const spawnPop = (text) => {
     const pop = { id: ++effectId, text };
@@ -104,7 +89,6 @@ export default function App() {
     setDiamondCount((n) => n + 1);
   }, []);
 
-  /* --- unified key press (mouse click on 3D key + physical keyboard) --- */
   const handlePress = useCallback((keyId) => {
     const pressId = ++effectId;
     setPressed({ keyId, id: pressId });
@@ -121,31 +105,32 @@ export default function App() {
     if (outcome === 'safe') {
       safeSound();
       spawnDiamond(keyId);
-      spawnPop(`${calcMult(game.safeRevealed + 1, game.minesCount).toFixed(2)}×`);
+      spawnPop(`${calcMult(game.safeRevealed + 1, game.minesCount, layout.totalKeys).toFixed(2)}×`);
     } else if (outcome === 'mine') {
       explosionSound();
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
     } else {
-      clickSound(); // already revealed
+      clickSound();
     }
-  }, [game]);
+  }, [game, layout.totalKeys]);
 
-  /* --- physical keyboard --- */
+  /* --- physical keyboard (desktop layout only) --- */
   useEffect(() => {
+    if (isMobile) return undefined;
+
     const onKeyDown = (e) => {
       if (e.repeat) return;
       if (document.activeElement?.tagName === 'INPUT') return;
-      if ((e.ctrlKey || e.metaKey || e.altKey) && !(e.key in PHYS_MAP)) return;
+      if ((e.ctrlKey || e.metaKey || e.altKey) && !(e.key in layout.physMap)) return;
 
-      let label = PHYS_MAP[e.key];
+      let label = layout.physMap[e.key];
       if (!label && e.key.length === 1) label = e.key.toUpperCase();
-      if (!label || !ALL_LABELS.has(label)) return;
+      if (!label || !layout.allLabels.has(label)) return;
 
       e.preventDefault();
 
-      // Labels like Shift exist twice — press the first unrevealed match
-      const candidates = BOARD_KEYS
+      const candidates = layout.boardKeys
         .map((k, i) => ({ label: k.l, keyId: i }))
         .filter((k) => k.label === label);
       const target =
@@ -155,9 +140,8 @@ export default function App() {
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [handlePress, game.grid]);
+  }, [handlePress, game.grid, isMobile, layout]);
 
-  /* --- round-outcome effects --- */
   const prevStatus = useRef(game.gameStatus);
   useEffect(() => {
     const prev = prevStatus.current;
@@ -197,22 +181,20 @@ export default function App() {
   return (
     <>
       <div
-        className={`chassis${shaking ? ' chassis--shake' : ''}`}
+        className={`chassis${shaking ? ' chassis--shake' : ''}${isMobile ? ' chassis--mobile' : ''}`}
         ref={chassisRef}
         data-state={game.gameStatus}
+        data-layout={layout.id}
       >
         <OledBar
           mode={game.mode}
           setMode={game.setMode}
           minesCount={game.minesCount}
+          totalKeys={layout.totalKeys}
           gameStatus={game.gameStatus}
           safeRevealed={game.safeRevealed}
           onShowInstructions={() => setShowInstructions(true)}
         />
-
-        {showRotateHint && (
-          <RotateHint onDismiss={dismissRotateHint} />
-        )}
 
         <Track track={game.track} safeRevealed={game.safeRevealed} gameStatus={game.gameStatus} />
 
@@ -224,6 +206,8 @@ export default function App() {
             <Banner banner={banner} />
           </div>
           <Keyboard
+            rows={layout.rows}
+            variant={layout.id}
             grid={game.grid}
             gameStatus={game.gameStatus}
             pressed={pressed}
@@ -254,6 +238,7 @@ export default function App() {
           setBet={game.setBet}
           minesCount={game.minesCount}
           setMines={game.setMines}
+          totalKeys={layout.totalKeys}
           balance={game.balance}
           multiplier={game.multiplier}
           profit={profit}
@@ -265,7 +250,7 @@ export default function App() {
 
       <Confetti pieces={confetti} />
       {showInstructions && createPortal(
-        <InstructionsModal onClose={closeInstructions} />,
+        <InstructionsModal onClose={closeInstructions} layoutId={layout.id} />,
         document.body
       )}
     </>

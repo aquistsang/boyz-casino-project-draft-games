@@ -1,8 +1,8 @@
-import { CONFIG } from '../config.js';
-
-export default function OledBar({ mode, setMode, minesCount, gameStatus, safeRevealed, onShowInstructions }) {
+export default function OledBar({
+  mode, setMode, minesCount, totalKeys, gameStatus, safeRevealed, onShowInstructions,
+}) {
   const playing = gameStatus === 'playing';
-  const safe = CONFIG.totalKeys - minesCount;
+  const safe = totalKeys - minesCount;
   const hint = playing
     ? `${minesCount} mines · ${safe - safeRevealed}/${safe} keys left`
     : `${minesCount} mines · ${safe} play keys`;

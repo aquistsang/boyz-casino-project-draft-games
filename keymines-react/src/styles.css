@@ -260,6 +260,42 @@ input { font-family: inherit; }
   height: var(--u);
 }
 
+/* ===== NUMPAD LAYOUT (mobile) ===== */
+.kb-wrap--numpad {
+  justify-content: center;
+}
+
+.kb--numpad {
+  --u: clamp(56px, 22vw, 76px);
+  padding: clamp(14px, 4vw, 20px);
+}
+
+.kb--numpad .kb-row {
+  justify-content: center;
+}
+
+.kb--numpad .key {
+  font-size: clamp(1rem, 4.5vw, 1.35rem);
+  border-radius: 8px;
+}
+
+.kb--numpad .key--deco {
+  font-size: clamp(0.85rem, 3.8vw, 1.1rem);
+}
+
+.chassis--mobile .kb-stage {
+  padding-top: clamp(52px, 14vw, 68px);
+}
+
+.chassis--mobile .kb-pop-zone {
+  height: clamp(52px, 14vw, 68px);
+}
+
+.chassis--mobile .kb-wrap {
+  margin: 0 auto;
+  max-width: min(100%, 360px);
+}
+
 /* Flat bird's-eye keycap — top-down, no 3D depth */
 .key {
   height: 100%;
@@ -1159,6 +1195,20 @@ button.pill:hover:not(:disabled):not(.on) {
   box-shadow: 0 3px 0 #9f1239, var(--glow-mine);
   font-size: 0.85rem;
   color: var(--key-mine-text);
+}
+
+.instr-key--deco {
+  background: var(--key-modifier);
+  border-color: #a855f755;
+  color: #d8b4fe;
+  box-shadow: 0 0 8px #a855f722;
+}
+
+.instr-mock--numpad .instr-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
+  gap: 5px;
+  justify-content: center;
 }
 
 .instr-mock__mult {

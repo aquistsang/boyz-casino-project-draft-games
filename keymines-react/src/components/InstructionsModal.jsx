@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useIsTouch } from '../hooks/useMedia.js';
 
 const STEPS_DESKTOP = [
   {
@@ -19,7 +18,7 @@ const STEPS_DESKTOP = [
   },
 ];
 
-const STEPS_TOUCH = [
+const STEPS_NUMPAD = [
   {
     title: 'BET',
     text: 'Set your bet and mine count in the bar below, then press START GAME.',
@@ -27,7 +26,7 @@ const STEPS_TOUCH = [
   },
   {
     title: 'PICK',
-    text: 'Tap keycaps on the keyboard — or use RANDOM KEY. Diamonds are safe, mines end the round!',
+    text: 'Tap numpad keys on screen — or use RANDOM KEY. Diamonds are safe, mines end the round!',
     visual: 'pick',
   },
   {
@@ -37,15 +36,19 @@ const STEPS_TOUCH = [
   },
 ];
 
-export default function InstructionsModal({ onClose }) {
-  const isTouch = useIsTouch();
-  const steps = useMemo(() => (isTouch ? STEPS_TOUCH : STEPS_DESKTOP), [isTouch]);
+export default function InstructionsModal({ onClose, layoutId = 'keyboard' }) {
+  const steps = useMemo(
+    () => (layoutId === 'numpad' ? STEPS_NUMPAD : STEPS_DESKTOP),
+    [layoutId]
+  );
+  const isNumpad = layoutId === 'numpad';
 
   return (
     <div className="instr-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="How to play">
       <div className="instr-modal" onClick={(e) => e.stopPropagation()}>
         <header className="instr-header">
           <h1 className="instr-title">KEYMINES</h1>
+          {isNumpad && <p className="instr-sub">NUMPAD EDITION</p>}
         </header>
 
         <div className="instr-panels">
@@ -77,14 +80,29 @@ export default function InstructionsModal({ onClose }) {
                   </div>
                 )}
                 {step.visual === 'pick' && (
-                  <div className="instr-mock instr-mock--pick">
+                  <div className={`instr-mock instr-mock--pick${isNumpad ? ' instr-mock--numpad' : ''}`}>
                     <div className="instr-keys">
-                      <span className="instr-key instr-key--safe">💎</span>
-                      <span className="instr-key instr-key--safe">Q</span>
-                      <span className="instr-key instr-key--mine">💣</span>
-                      <span className="instr-key">W</span>
-                      <span className="instr-key instr-key--safe">E</span>
-                      <span className="instr-key">R</span>
+                      {isNumpad ? (
+                        <>
+                          <span className="instr-key">7</span>
+                          <span className="instr-key instr-key--safe">💎</span>
+                          <span className="instr-key">9</span>
+                          <span className="instr-key instr-key--deco">÷</span>
+                          <span className="instr-key">4</span>
+                          <span className="instr-key instr-key--mine">💣</span>
+                          <span className="instr-key">6</span>
+                          <span className="instr-key instr-key--deco">×</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="instr-key instr-key--safe">💎</span>
+                          <span className="instr-key instr-key--safe">Q</span>
+                          <span className="instr-key instr-key--mine">💣</span>
+                          <span className="instr-key">W</span>
+                          <span className="instr-key instr-key--safe">E</span>
+                          <span className="instr-key">R</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}

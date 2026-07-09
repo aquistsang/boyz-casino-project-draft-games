@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { KB_ROWS } from '../config.js';
 
 /** Mini particle burst on a mine key. */
 function MineBurst({ active }) {
@@ -33,18 +32,18 @@ function MineBurst({ active }) {
 
 /** Flat top-down keyboard — bird's-eye view, no Three.js. */
 export default function Keyboard({
-  grid, gameStatus, pressed, onPress, keyPositionsRef,
+  rows, variant = 'keyboard', grid, gameStatus, pressed, onPress, keyPositionsRef,
 }) {
   const keyRefs = useRef({});
   const ended = gameStatus === 'gameover' || gameStatus === 'cashedout';
   const showMineFx = gameStatus === 'gameover';
 
-  const rows = useMemo(() => {
+  const rowsWithIds = useMemo(() => {
     let keyId = 0;
-    return KB_ROWS.map((row) =>
+    return rows.map((row) =>
       row.map((def) => ({ def, keyId: keyId++ }))
     );
-  }, []);
+  }, [rows]);
 
   useEffect(() => {
     if (!keyPositionsRef) return;
@@ -59,13 +58,13 @@ export default function Keyboard({
   }, [keyPositionsRef, grid]);
 
   return (
-    <div className="kb-wrap">
-      <div className="kb">
-        {rows.map((row, ri) => (
+    <div className={`kb-wrap kb-wrap--${variant}`}>
+      <div className={`kb kb--${variant}`}>
+        {rowsWithIds.map((row, ri) => (
           <div className="kb-row" key={ri}>
             {row.map(({ def, keyId }) => {
               const slot = grid[keyId] ?? null;
-              const isDeco = def.l.length > 1;
+              const isDeco = def.deco ?? def.l.length > 1;
               const isPressed = pressed?.keyId === keyId;
               const isMine = !!slot?.isMine;
 

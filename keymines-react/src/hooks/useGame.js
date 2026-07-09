@@ -1,10 +1,10 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { CONFIG, BOARD_KEYS } from '../config.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CONFIG } from '../config.js';
 import { genSeed, sha256, placeMines } from '../fair.js';
 
 /** Multiplier after n safe reveals (standard mines odds + house edge). */
-export function calcMult(n, mines, total = CONFIG.totalKeys) {
-  if (!n) return 1;
+export function calcMult(n, mines, total) {
+  if (!n || !total) return 1;
   let m = 1;
   for (let i = 0; i < n; i++) m *= (total - i) / (total - mines - i);
   return m * Math.pow(1 - CONFIG.houseEdge, n);
@@ -14,8 +14,9 @@ export function calcMult(n, mines, total = CONFIG.totalKeys) {
  * All game state + actions. Pure logic — no sounds or DOM effects;
  * the caller reacts to the returned reveal outcome.
  */
-export function useGame() {
-  const [grid, setGrid] = useState([]); // one slot per board key: { label, keyId, isMine, isRevealed }
+export function useGame(layout) {
+  const { totalKeys, boardKeys } = layout;
+  const [grid, setGrid] = useState([]);
   const [minesCount, setMinesCount] = useState(3);
   const [bet, setBetState] = useState(10);
   const [mode, setMode] = useState('demo');
@@ -23,20 +24,37 @@ export function useGame() {
     demo: CONFIG.demoBalance,
     real: CONFIG.realBalance,
   });
-  const [gameStatus, setGameStatus] = useState('idle'); // idle | playing | gameover | cashedout
+  const [gameStatus, setGameStatus] = useState('idle');
   const [safeRevealed, setSafeRevealed] = useState(0);
-  const [message, setMessage] = useState({ text: 'Press START — then click keys or type on your real keyboard', type: 'info' });
+  const [message, setMessage] = useState({
+    text: layout.id === 'numpad'
+      ? 'Press START — then tap numpad keys'
+      : 'Press START — then click keys or type on your real keyboard',
+    type: 'info',
+  });
   const nonceRef = useRef(0);
 
-  /* --- provably fair state (commit-reveal) --- */
   const [clientSeed, setClientSeedState] = useState(() => genSeed().slice(0, 20));
-  const [serverSeed, setServerSeed] = useState(null); // revealed to UI only after settlement
-  const [serverSeedHash, setServerSeedHash] = useState(null); // commitment, public at round start
-  const [entropyHash, setEntropyHash] = useState(null); // sha256(server:client:nonce)
+  const [serverSeed, setServerSeed] = useState(null);
+  const [serverSeedHash, setServerSeedHash] = useState(null);
+  const [entropyHash, setEntropyHash] = useState(null);
   const [roundId, setRoundId] = useState(0);
 
   const balance = balances[mode];
-  const multiplier = calcMult(safeRevealed, minesCount);
+  const multiplier = calcMult(safeRevealed, minesCount, totalKeys);
+
+  useEffect(() => {
+    setMinesCount((m) => Math.max(1, Math.min(totalKeys - 1, m)));
+    setGrid([]);
+    setSafeRevealed(0);
+    setGameStatus('idle');
+    setMessage({
+      text: layout.id === 'numpad'
+        ? 'Press START — then tap numpad keys'
+        : 'Press START — then click keys or type on your real keyboard',
+      type: 'info',
+    });
+  }, [layout.id, totalKeys]);
 
   const setBalance = useCallback((v) => {
     setBalances((b) => ({ ...b, [mode]: v }));
@@ -48,8 +66,8 @@ export function useGame() {
   }, []);
 
   const setMines = useCallback((v) => {
-    setMinesCount(Math.max(1, Math.min(CONFIG.totalKeys - 1, Math.round(v) || 1)));
-  }, []);
+    setMinesCount(Math.max(1, Math.min(totalKeys - 1, Math.round(v) || 1)));
+  }, [totalKeys]);
 
   const startGame = useCallback(async () => {
     if (gameStatus === 'playing') return false;
@@ -62,18 +80,17 @@ export function useGame() {
     nonceRef.current += 1;
     const nonce = nonceRef.current;
 
-    // Commit: server seed is fixed (and its hash publishable) before any reveal
     const seed = genSeed();
     const commitHash = await sha256(seed);
     const combined = await sha256(`${seed}:${clientSeed}:${nonce}`);
-    const mineIds = await placeMines(CONFIG.totalKeys, minesCount, seed, clientSeed, nonce);
+    const mineIds = await placeMines(totalKeys, minesCount, seed, clientSeed, nonce);
 
     setServerSeed(seed);
     setServerSeedHash(commitHash);
     setEntropyHash(combined);
     setRoundId(nonce);
 
-    setGrid(BOARD_KEYS.map((k, i) => ({
+    setGrid(boardKeys.map((k, i) => ({
       label: k.l,
       keyId: i,
       isMine: mineIds.has(i),
@@ -81,9 +98,14 @@ export function useGame() {
     })));
     setSafeRevealed(0);
     setGameStatus('playing');
-    setMessage({ text: 'Click any key — or press it on your real keyboard', type: 'info' });
+    setMessage({
+      text: layout.id === 'numpad'
+        ? 'Tap any numpad key — or use RANDOM KEY'
+        : 'Click any key — or press it on your real keyboard',
+      type: 'info',
+    });
     return true;
-  }, [gameStatus, bet, balance, minesCount, clientSeed, setBalance]);
+  }, [gameStatus, bet, balance, minesCount, clientSeed, setBalance, totalKeys, boardKeys, layout.id]);
 
   const cashOut = useCallback((auto = false, revealedCount = safeRevealed) => {
     if (gameStatus !== 'playing') return;
@@ -92,7 +114,7 @@ export function useGame() {
       return;
     }
 
-    const mult = calcMult(revealedCount, minesCount);
+    const mult = calcMult(revealedCount, minesCount, totalKeys);
     const win = bet * mult;
     setBalance(balance + win);
     setGameStatus('cashedout');
@@ -103,9 +125,8 @@ export function useGame() {
         : `✅ ${mult.toFixed(2)}× +${profit.toFixed(4)}`,
       type: 'win',
     });
-  }, [gameStatus, safeRevealed, minesCount, bet, balance, setBalance]);
+  }, [gameStatus, safeRevealed, minesCount, bet, balance, setBalance, totalKeys]);
 
-  /** Reveal a key. Returns 'safe' | 'mine' | null. */
   const reveal = useCallback((keyId) => {
     if (gameStatus !== 'playing') return null;
     const slot = grid[keyId];
@@ -122,11 +143,11 @@ export function useGame() {
     setGrid((g) => g.map((s) => (s.keyId === keyId ? { ...s, isRevealed: true } : s)));
     setSafeRevealed(newCount);
 
-    if (newCount >= CONFIG.totalKeys - minesCount) {
+    if (newCount >= totalKeys - minesCount) {
       cashOut(true, newCount);
     }
     return 'safe';
-  }, [gameStatus, grid, safeRevealed, minesCount, cashOut]);
+  }, [gameStatus, grid, safeRevealed, minesCount, cashOut, totalKeys]);
 
   const randomGameId = useCallback(() => {
     if (gameStatus !== 'playing') return null;
@@ -135,7 +156,6 @@ export function useGame() {
     return hidden[Math.floor(Math.random() * hidden.length)].keyId;
   }, [gameStatus, grid]);
 
-  /* --- provably fair helpers --- */
   const setClientSeed = useCallback((v) => {
     if (gameStatus === 'playing') return;
     setClientSeedState(v.slice(0, 64));
@@ -146,35 +166,36 @@ export function useGame() {
     setClientSeedState(genSeed().slice(0, 20));
   }, [gameStatus]);
 
-  /** Recompute mines from the revealed seeds and compare with this round's board. */
   const verifyRound = useCallback(async () => {
     if (!serverSeed || !grid.length) return null;
-    const ids = await placeMines(CONFIG.totalKeys, minesCount, serverSeed, clientSeed, roundId);
+    const ids = await placeMines(totalKeys, minesCount, serverSeed, clientSeed, roundId);
     const boardMines = new Set(grid.filter((s) => s.isMine).map((s) => s.keyId));
     return ids.size === boardMines.size && [...ids].every((i) => boardMines.has(i));
-  }, [serverSeed, clientSeed, roundId, minesCount, grid]);
+  }, [serverSeed, clientSeed, roundId, minesCount, grid, totalKeys]);
 
   const newRound = useCallback(() => {
     setGrid([]);
     setSafeRevealed(0);
     setGameStatus('idle');
-    setMessage({ text: 'Press START to arm switches', type: 'info' });
-  }, []);
+    setMessage({
+      text: layout.id === 'numpad' ? 'Press START to arm the numpad' : 'Press START to arm switches',
+      type: 'info',
+    });
+  }, [layout.id]);
 
   const track = useMemo(() => {
     return Array.from({ length: CONFIG.trackSteps }, (_, i) => ({
       reveals: i,
-      mult: calcMult(i, minesCount),
+      mult: calcMult(i, minesCount, totalKeys),
     }));
-  }, [minesCount]);
+  }, [minesCount, totalKeys]);
 
   const ended = gameStatus === 'gameover' || gameStatus === 'cashedout';
 
   return {
     grid, minesCount, bet, mode, balance, gameStatus, safeRevealed,
-    multiplier, message, track,
+    multiplier, message, track, layout,
     setBet, setMines, setMode, startGame, reveal, randomGameId, cashOut, newRound,
-    /* provably fair */
     roundId, serverSeedHash, entropyHash: ended ? entropyHash : null,
     revealedServerSeed: ended ? serverSeed : null,
     clientSeed, setClientSeed, regenClientSeed, verifyRound,
