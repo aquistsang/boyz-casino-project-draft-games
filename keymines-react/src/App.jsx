@@ -10,7 +10,10 @@ import Track from './components/Track.jsx';
 import Actions from './components/Actions.jsx';
 import FairPanel from './components/FairPanel.jsx';
 import InstructionsModal from './components/InstructionsModal.jsx';
-import { Confetti, CenterPops, Banner, DiamondCounter, FlyingDiamonds } from './components/Effects.jsx';
+import { useIsMobile, useIsPortrait, useLowPower } from './hooks/useMedia.js';
+import { Confetti, CenterPops, Banner, DiamondCounter, FlyingDiamonds, RotateHint } from './components/Effects.jsx';
+
+const ROTATE_HINT_KEY = 'keymines-dismiss-rotate-hint';
 
 let effectId = 0;
 
@@ -19,7 +22,13 @@ export default function App() {
   const chassisRef = useRef(null);
   const stageRef = useRef(null);
   const keyPositionsRef = useRef({});
+  const isMobile = useIsMobile();
+  const isPortrait = useIsPortrait();
+  const lowPower = useLowPower();
   const [showInstructions, setShowInstructions] = useState(true);
+  const [showRotateHint, setShowRotateHint] = useState(
+    () => isMobile && isPortrait && !localStorage.getItem(ROTATE_HINT_KEY)
+  );
   const [confetti, setConfetti] = useState([]);
   const [shaking, setShaking] = useState(false);
   const [exploded, setExploded] = useState(false);
@@ -32,6 +41,16 @@ export default function App() {
   const closeInstructions = () => {
     setShowInstructions(false);
   };
+
+  const dismissRotateHint = () => {
+    localStorage.setItem(ROTATE_HINT_KEY, '1');
+    setShowRotateHint(false);
+  };
+
+  useEffect(() => {
+    if (!isMobile || !isPortrait) setShowRotateHint(false);
+    else if (!localStorage.getItem(ROTATE_HINT_KEY)) setShowRotateHint(true);
+  }, [isMobile, isPortrait]);
 
   const spawnPop = (text) => {
     const pop = { id: ++effectId, text };
@@ -49,7 +68,7 @@ export default function App() {
     if (!r) return;
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
-    const pieces = Array.from({ length: 20 }, () => ({
+    const pieces = Array.from({ length: lowPower ? 10 : 20 }, () => ({
       id: ++effectId,
       x: cx + (Math.random() - 0.5) * 80,
       y: cy,
@@ -62,7 +81,7 @@ export default function App() {
 
   const spawnDiamond = (keyId) => {
     const stage = stageRef.current?.getBoundingClientRect();
-    const from = keyPositionsRef.current[keyId];
+    const from = keyPositionsRef.current?.projectKey?.(keyId);
     if (!stage) return;
 
     const sx = from ? from.x - stage.left : stage.width * 0.5;
@@ -87,7 +106,11 @@ export default function App() {
 
   /* --- unified key press (mouse click on 3D key + physical keyboard) --- */
   const handlePress = useCallback((keyId) => {
-    setPressed({ keyId, id: ++effectId });
+    const pressId = ++effectId;
+    setPressed({ keyId, id: pressId });
+    setTimeout(() => {
+      setPressed((p) => (p?.id === pressId ? null : p));
+    }, 180);
 
     if (game.gameStatus !== 'playing') {
       clickSound();
@@ -188,6 +211,10 @@ export default function App() {
           safeRevealed={game.safeRevealed}
           onShowInstructions={() => setShowInstructions(true)}
         />
+
+        {showRotateHint && (
+          <RotateHint onDismiss={dismissRotateHint} />
+        )}
 
         <Track track={game.track} safeRevealed={game.safeRevealed} gameStatus={game.gameStatus} />
 

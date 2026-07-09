@@ -1,4 +1,7 @@
-const STEPS = [
+import { useMemo } from 'react';
+import { useIsTouch } from '../hooks/useMedia.js';
+
+const STEPS_DESKTOP = [
   {
     title: 'BET',
     text: 'Set your bet and mine count in the bar below, then press START GAME.',
@@ -16,7 +19,28 @@ const STEPS = [
   },
 ];
 
+const STEPS_TOUCH = [
+  {
+    title: 'BET',
+    text: 'Set your bet and mine count in the bar below, then press START GAME.',
+    visual: 'bet',
+  },
+  {
+    title: 'PICK',
+    text: 'Tap keycaps on the keyboard — or use RANDOM KEY. Diamonds are safe, mines end the round!',
+    visual: 'pick',
+  },
+  {
+    title: 'CASH OUT',
+    text: 'Cash out any time to lock in your multiplier before you hit a mine.',
+    visual: 'cash',
+  },
+];
+
 export default function InstructionsModal({ onClose }) {
+  const isTouch = useIsTouch();
+  const steps = useMemo(() => (isTouch ? STEPS_TOUCH : STEPS_DESKTOP), [isTouch]);
+
   return (
     <div className="instr-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="How to play">
       <div className="instr-modal" onClick={(e) => e.stopPropagation()}>
@@ -26,7 +50,7 @@ export default function InstructionsModal({ onClose }) {
         </header>
 
         <div className="instr-panels">
-          {STEPS.map((step) => (
+          {steps.map((step) => (
             <article className="instr-panel" key={step.title}>
               <div className={`instr-visual instr-visual--${step.visual}`}>
                 {step.visual === 'bet' && (

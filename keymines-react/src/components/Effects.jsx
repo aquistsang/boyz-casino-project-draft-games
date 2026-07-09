@@ -28,6 +28,21 @@ export function Confetti({ pieces }) {
   ));
 }
 
+/** Suggest landscape on portrait phones for a wider keyboard view. */
+export function RotateHint({ onDismiss }) {
+  return (
+    <div className="rotate-hint" role="status">
+      <span className="rotate-hint__icon" aria-hidden="true">📱↻</span>
+      <p className="rotate-hint__text">
+        Rotate your phone for the best keyboard view
+      </p>
+      <button type="button" className="rotate-hint__dismiss" onClick={onDismiss}>
+        Got it
+      </button>
+    </div>
+  );
+}
+
 /** Top-left diamond counter on the grey keyboard stage. */
 export function DiamondCounter({ count }) {
   const visible = count > 0;

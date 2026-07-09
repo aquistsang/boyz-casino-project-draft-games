@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { RoundedBox, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { KB_ROWS } from '../config.js';
+import { useLowPower } from '../hooks/useMedia.js';
 
 /* ---- layout constants (1 unit = 1u keycap) ---- */
 const U = 1;
@@ -24,9 +25,11 @@ const COL = {
   mine: '#c62828',
   mineEmissive: '#ff1744',
   ghost: '#4a1515',
+  mobileGlow: '#1a4a7a',
 };
 
 const _rgb = new THREE.Color();
+const _base = new THREE.Color();
 
 /* Blue-only wave — hue locked to cyan→navy, brightness sweeps diagonally. */
 const WAVELEN = 16;
@@ -41,7 +44,7 @@ function sampleWave(x, z, t, offset = 0) {
 
 function rgbWave(x, z, t, offset = 0) {
   const { phase, crest } = sampleWave(x, z, t, offset);
-  const hue = 0.54 + phase * 0.1; // cyan → deep blue only
+  const hue = 0.54 + phase * 0.1;
   const sat = 0.6 + crest * 0.35;
   const lit = 0.14 + phase * 0.22 + crest * 0.38;
   _rgb.setHSL(hue, sat, lit);
@@ -84,14 +87,30 @@ function useLayout() {
   }, []);
 }
 
+/** Keeps demand-mode canvas rendering during short animations only. */
+function DemandDriver({ exploded, pressed }) {
+  const { invalidate } = useThree();
+  const pressUntil = useRef(0);
+
+  useEffect(() => {
+    if (pressed) pressUntil.current = performance.now() + 200;
+    invalidate();
+  }, [pressed, invalidate]);
+
+  useFrame(() => {
+    if (exploded || performance.now() < pressUntil.current) invalidate();
+  });
+  return null;
+}
+
 /** Fiery debris burst where a mine detonates. */
-function MineBurst() {
-  const COUNT = 16;
+function MineBurst({ lowPower }) {
+  const COUNT = lowPower ? 8 : 16;
   const parts = useMemo(() =>
     Array.from({ length: COUNT }, () => ({
       v: new THREE.Vector3((Math.random() - 0.5) * 7, 3 + Math.random() * 5, (Math.random() - 0.5) * 7),
       r: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6),
-    })), []);
+    })), [COUNT]);
   const refs = useRef([]);
   const t0 = useRef(null);
 
@@ -112,11 +131,10 @@ function MineBurst() {
   return parts.map((_, i) => (
     <mesh key={i} ref={(el) => (refs.current[i] = el)}>
       <boxGeometry args={[0.12, 0.12, 0.12]} />
-      <meshStandardMaterial
+      <meshBasicMaterial
         color={i % 2 ? '#ff7043' : '#ffca28'}
-        emissive={i % 2 ? '#ff3d00' : '#ffab00'}
-        emissiveIntensity={2}
         transparent
+        opacity={1}
       />
     </mesh>
   ));
@@ -126,7 +144,7 @@ function MineBurst() {
  * One 3D keycap with RGB underglow wave, press dip, reveal colours,
  * and free-flight physics when the board explodes.
  */
-function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
+function Keycap({ k, slot, gameStatus, exploded, pressed, onPress, lowPower }) {
   const group = useRef();
   const capMat = useRef();
   const glowMat = useRef();
@@ -156,6 +174,11 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
     if (!g) return;
     const dt = Math.min(rawDt, 0.05);
     const p = phys.current;
+    const since = pressT.current < 0 ? Infinity : (performance.now() - pressT.current) / 1000;
+    const animating = exploded || p.active || since < 0.15;
+
+    if (lowPower && !animating) return;
+
     const t = clock.elapsedTime;
 
     if (exploded) {
@@ -191,26 +214,24 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
       g.rotation.set(0, 0, 0);
     }
 
-    const since = pressT.current < 0 ? Infinity : (performance.now() - pressT.current) / 1000;
     const targetY = since < 0.12 ? KEY_H / 2 - 0.16 : KEY_H / 2;
     g.position.y += (targetY - g.position.y) * Math.min(1, dt * 30);
 
-    /* RGB wave on unrevealed keys */
-    if (!slot?.isRevealed && capMat.current && glowMat.current) {
+    /* RGB wave on unrevealed keys — desktop only */
+    if (!lowPower && !slot?.isRevealed && capMat.current && glowMat.current) {
       const c = rgbWave(k.x, k.z, t);
       const glow = waveIntensity(k.x, k.z, t);
       glowMat.current.emissive.copy(c);
       glowMat.current.emissiveIntensity = glow;
       glowMat.current.color.copy(c).multiplyScalar(0.3);
 
-      const base = new THREE.Color(isAlphaLook ? COL.alphaFace : COL.decoFace);
-      capMat.current.color.copy(base).lerp(c, 0.18);
+      _base.set(isAlphaLook ? COL.alphaFace : COL.decoFace);
+      capMat.current.color.copy(_base).lerp(c, 0.18);
       capMat.current.emissive.copy(c);
       capMat.current.emissiveIntensity = 0.15 + glow * 0.22;
     }
   });
 
-  /* static face colours for revealed / ended states */
   let face = isAlphaLook ? COL.alphaFace : COL.decoFace;
   let legend = isAlphaLook ? COL.alphaLegend : COL.decoLegend;
   let emissive = '#000000';
@@ -220,27 +241,54 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
   if (slot) {
     if (slot.isRevealed) {
       if (slot.isMine) {
-        face = COL.mine; emissive = COL.mineEmissive; emissiveIntensity = 0.6; legend = '#ffdddd';
+        face = COL.mine; emissive = COL.mineEmissive; emissiveIntensity = lowPower ? 0 : 0.6; legend = '#ffdddd';
       } else {
-        /* Safe: muted used key — diamond flies to HUD instead of green glow */
         face = isAlphaLook ? COL.used : COL.usedDeco;
         legend = isAlphaLook ? '#6a645a' : '#9a9b9f';
       }
     } else if (ended && slot.isMine) {
       face = COL.ghost; legend = '#c98080';
+    } else if (lowPower) {
+      face = isAlphaLook ? COL.alphaFace : COL.decoFace;
     }
   }
 
   const clickProps = {
     onClick: (e) => { e.stopPropagation(); onPress(k.keyId); },
-    onPointerOver: () => (document.body.style.cursor = 'pointer'),
-    onPointerOut: () => (document.body.style.cursor = 'default'),
+    ...(!lowPower && {
+      onPointerOver: () => { document.body.style.cursor = 'pointer'; },
+      onPointerOut: () => { document.body.style.cursor = 'default'; },
+    }),
   };
+
+  const capBody = lowPower ? (
+    <mesh castShadow={false} receiveShadow={false} {...clickProps}>
+      <boxGeometry args={[k.w, KEY_H, KEY_D]} />
+      <meshBasicMaterial ref={capMat} color={face} />
+    </mesh>
+  ) : (
+    <RoundedBox
+      args={[k.w, KEY_H, KEY_D]}
+      radius={0.07}
+      smoothness={3}
+      castShadow
+      receiveShadow
+      {...clickProps}
+    >
+      <meshStandardMaterial
+        ref={capMat}
+        color={face}
+        emissive={emissive}
+        emissiveIntensity={emissiveIntensity}
+        roughness={0.45}
+        metalness={0.08}
+      />
+    </RoundedBox>
+  );
 
   return (
     <group ref={group} position={[k.x, KEY_H / 2, k.z]}>
-      {/* per-key RGB underglow pad */}
-      {!slot?.isRevealed && (
+      {!lowPower && !slot?.isRevealed && (
         <mesh position={[0, -KEY_H / 2 - 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[k.w * 0.88, KEY_D * 0.88]} />
           <meshStandardMaterial
@@ -253,76 +301,66 @@ function Keycap({ k, slot, gameStatus, exploded, pressed, onPress }) {
         </mesh>
       )}
 
-      <RoundedBox
-        args={[k.w, KEY_H, KEY_D]}
-        radius={0.07}
-        smoothness={3}
-        castShadow
-        receiveShadow
-        {...clickProps}
-      >
-        <meshStandardMaterial
-          ref={capMat}
-          color={face}
-          emissive={emissive}
-          emissiveIntensity={emissiveIntensity}
-          roughness={0.45}
-          metalness={0.08}
-        />
-      </RoundedBox>
+      {capBody}
 
-      <Text
-        position={[0, KEY_H / 2 + 0.011, 0.06]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={k.def.l.length > 1 ? 0.22 : 0.34}
-        color={legend}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {label}
-      </Text>
+      {!lowPower && (
+        <Text
+          position={[0, KEY_H / 2 + 0.011, 0.06]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={k.def.l.length > 1 ? 0.22 : 0.34}
+          color={legend}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {label}
+        </Text>
+      )}
 
-      {burstKey > 0 && <MineBurst key={burstKey} />}
+      {burstKey > 0 && <MineBurst key={burstKey} lowPower={lowPower} />}
     </group>
   );
 }
 
-/** Project each key’s world position into viewport pixels for HUD diamond flights. */
+/** Expose on-demand key → screen projection (avoids 61×/frame work). */
 function KeyProjector({ keys, positionsRef }) {
   const { camera, gl } = useThree();
   const tmp = useMemo(() => new THREE.Vector3(), []);
 
-  useFrame(() => {
+  const projectKey = useCallback((keyId) => {
+    const k = keys.find((key) => key.keyId === keyId);
+    if (!k) return null;
     const rect = gl.domElement.getBoundingClientRect();
-    const map = {};
-    keys.forEach((k) => {
-      tmp.set(k.x, KEY_H * 0.9, k.z).project(camera);
-      map[k.keyId] = {
-        x: (tmp.x * 0.5 + 0.5) * rect.width + rect.left,
-        y: (-tmp.y * 0.5 + 0.5) * rect.height + rect.top,
-      };
-    });
-    positionsRef.current = map;
-  });
+    tmp.set(k.x, KEY_H * 0.9, k.z).project(camera);
+    return {
+      x: (tmp.x * 0.5 + 0.5) * rect.width + rect.left,
+      y: (-tmp.y * 0.5 + 0.5) * rect.height + rect.top,
+    };
+  }, [keys, camera, gl, tmp]);
+
+  useEffect(() => {
+    if (positionsRef) {
+      positionsRef.current = { projectKey };
+    }
+  }, [positionsRef, projectKey]);
 
   return null;
 }
 
 /** Keyboard chassis — top-down visible bezel ring + side walls + blue underglow strip. */
-function KeyboardFrame({ maxW, totalD }) {
+function KeyboardFrame({ maxW, totalD, lowPower }) {
   const stripFront = useRef();
   const stripBack = useRef();
   const stripLeft = useRef();
   const stripRight = useRef();
 
-  const bezelW = 0.58;          // visible mat width around keys (bird's-eye)
+  const bezelW = 0.58;
   const outerW = maxW + bezelW * 2 + 0.5;
   const outerD = totalD + bezelW * 2 + 0.5;
   const innerW = maxW + 0.28;
   const innerD = totalD + 0.28;
-  const deckY = 0.06;           // top of frame deck (just below keycap bases)
+  const deckY = 0.06;
   const deckH = 0.22;
-  const wallH = 0.75;
+  const wallH = lowPower ? 0.5 : 0.75;
   const baseH = 0.45;
 
   const stripPos = useMemo(() => ([
@@ -333,6 +371,7 @@ function KeyboardFrame({ maxW, totalD }) {
   ]), [outerW, outerD]);
 
   useFrame(({ clock }) => {
+    if (lowPower) return;
     const t = clock.elapsedTime;
     [stripFront, stripBack, stripLeft, stripRight].forEach((ref, i) => {
       if (!ref.current) return;
@@ -344,150 +383,169 @@ function KeyboardFrame({ maxW, totalD }) {
     });
   });
 
-  const frameMat = <meshStandardMaterial color="#3d4a5c" roughness={0.32} metalness={0.55} />;
-  const shellMat = <meshStandardMaterial color="#252c38" roughness={0.28} metalness={0.65} />;
-  const recessMat = <meshStandardMaterial color="#0a0d12" roughness={0.85} metalness={0.15} />;
+  const frameMat = lowPower
+    ? <meshBasicMaterial color="#3d4a5c" />
+    : <meshStandardMaterial color="#3d4a5c" roughness={0.32} metalness={0.55} />;
+  const shellMat = lowPower
+    ? <meshBasicMaterial color="#252c38" />
+    : <meshStandardMaterial color="#252c38" roughness={0.28} metalness={0.65} />;
+  const recessMat = lowPower
+    ? <meshBasicMaterial color="#0a0d12" />
+    : <meshStandardMaterial color="#0a0d12" roughness={0.85} metalness={0.15} />;
 
   const zFront = innerD / 2 + bezelW / 2;
   const zBack = -innerD / 2 - bezelW / 2;
   const xLeft = -innerW / 2 - bezelW / 2;
   const xRight = innerW / 2 + bezelW / 2;
+  const shadow = !lowPower;
 
   return (
     <group>
-      {/* bottom chassis block */}
-      <mesh position={[0, -baseH / 2 - 0.32, 0]} castShadow receiveShadow>
+      <mesh position={[0, -baseH / 2 - 0.32, 0]} castShadow={shadow} receiveShadow={shadow}>
         <boxGeometry args={[outerW + 0.4, baseH, outerD + 0.4]} />
         {shellMat}
       </mesh>
 
-      {/* === TOP-VISIBLE BEZEL RING (picture-frame mat around keys) === */}
-      {/* front rail */}
-      <mesh position={[0, deckY, zFront]} castShadow receiveShadow>
+      <mesh position={[0, deckY, zFront]} castShadow={shadow} receiveShadow={shadow}>
         <boxGeometry args={[outerW, deckH, bezelW]} />
         {frameMat}
       </mesh>
-      {/* back rail */}
-      <mesh position={[0, deckY, zBack]} castShadow receiveShadow>
+      <mesh position={[0, deckY, zBack]} castShadow={shadow} receiveShadow={shadow}>
         <boxGeometry args={[outerW, deckH, bezelW]} />
         {frameMat}
       </mesh>
-      {/* left rail */}
-      <mesh position={[xLeft, deckY, 0]} castShadow receiveShadow>
+      <mesh position={[xLeft, deckY, 0]} castShadow={shadow} receiveShadow={shadow}>
         <boxGeometry args={[bezelW, deckH, innerD]} />
         {frameMat}
       </mesh>
-      {/* right rail */}
-      <mesh position={[xRight, deckY, 0]} castShadow receiveShadow>
+      <mesh position={[xRight, deckY, 0]} castShadow={shadow} receiveShadow={shadow}>
         <boxGeometry args={[bezelW, deckH, innerD]} />
         {frameMat}
       </mesh>
 
-      {/* brass outer trim — visible gold edge from above */}
-      <mesh position={[0, deckY + deckH / 2 + 0.018, 0]}>
-        <boxGeometry args={[outerW + 0.1, 0.035, outerD + 0.1]} />
-        <meshStandardMaterial color="#c9a020" roughness={0.18} metalness={0.95} />
-      </mesh>
+      {!lowPower && (
+        <mesh position={[0, deckY + deckH / 2 + 0.018, 0]}>
+          <boxGeometry args={[outerW + 0.1, 0.035, outerD + 0.1]} />
+          <meshStandardMaterial color="#c9a020" roughness={0.18} metalness={0.95} />
+        </mesh>
+      )}
 
-      {/* recessed switch well where keys sit */}
-      <mesh position={[0, deckY - deckH / 2 - 0.04, 0]} receiveShadow>
+      <mesh position={[0, deckY - deckH / 2 - 0.04, 0]} receiveShadow={shadow}>
         <boxGeometry args={[innerW, 0.1, innerD]} />
         {recessMat}
       </mesh>
 
-      {/* === SIDE WALLS (visible with slight camera tilt) === */}
-      <mesh position={[0, deckY - wallH / 2 + 0.04, outerD / 2 + 0.06]} castShadow>
-        <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
-        {shellMat}
-      </mesh>
-      <mesh position={[0, deckY - wallH / 2 + 0.04, -outerD / 2 - 0.06]} castShadow>
-        <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
-        {shellMat}
-      </mesh>
-      <mesh position={[-outerW / 2 - 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
-        <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
-        {shellMat}
-      </mesh>
-      <mesh position={[outerW / 2 + 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
-        <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
-        {shellMat}
-      </mesh>
+      {!lowPower && (
+        <>
+          <mesh position={[0, deckY - wallH / 2 + 0.04, outerD / 2 + 0.06]} castShadow>
+            <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
+            {shellMat}
+          </mesh>
+          <mesh position={[0, deckY - wallH / 2 + 0.04, -outerD / 2 - 0.06]} castShadow>
+            <boxGeometry args={[outerW + 0.08, wallH, 0.14]} />
+            {shellMat}
+          </mesh>
+          <mesh position={[-outerW / 2 - 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
+            <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
+            {shellMat}
+          </mesh>
+          <mesh position={[outerW / 2 + 0.06, deckY - wallH / 2 + 0.04, 0]} castShadow>
+            <boxGeometry args={[0.14, wallH, outerD + 0.08]} />
+            {shellMat}
+          </mesh>
+          {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz], i) => (
+            <mesh
+              key={i}
+              position={[sx * (outerW / 2 - 0.22), deckY + 0.02, sz * (outerD / 2 - 0.22)]}
+            >
+              <cylinderGeometry args={[0.07, 0.07, 0.05, 12]} />
+              <meshStandardMaterial color="#1a2030" roughness={0.25} metalness={0.85} />
+            </mesh>
+          ))}
+        </>
+      )}
 
-      {/* corner screw posts on bezel */}
-      {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz], i) => (
-        <mesh
-          key={i}
-          position={[sx * (outerW / 2 - 0.22), deckY + 0.02, sz * (outerD / 2 - 0.22)]}
-        >
-          <cylinderGeometry args={[0.07, 0.07, 0.05, 12]} />
-          <meshStandardMaterial color="#1a2030" roughness={0.25} metalness={0.85} />
-        </mesh>
-      ))}
+      {!lowPower && (
+        <>
+          <mesh position={[0, deckY - deckH / 2 - 0.06, outerD / 2 + 0.04]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[outerW * 0.94, 0.09]} />
+            <meshStandardMaterial ref={stripFront} transparent opacity={0.95} />
+          </mesh>
+          <mesh position={[0, deckY - deckH / 2 - 0.06, -outerD / 2 - 0.04]} rotation={[-Math.PI / 2, 0, Math.PI]}>
+            <planeGeometry args={[outerW * 0.94, 0.09]} />
+            <meshStandardMaterial ref={stripBack} transparent opacity={0.95} />
+          </mesh>
+          <mesh position={[-outerW / 2 - 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
+            <planeGeometry args={[outerD * 0.94, 0.09]} />
+            <meshStandardMaterial ref={stripLeft} transparent opacity={0.95} />
+          </mesh>
+          <mesh position={[outerW / 2 + 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]}>
+            <planeGeometry args={[outerD * 0.94, 0.09]} />
+            <meshStandardMaterial ref={stripRight} transparent opacity={0.95} />
+          </mesh>
+        </>
+      )}
 
-      {/* blue underglow strips on frame underside */}
-      <mesh position={[0, deckY - deckH / 2 - 0.06, outerD / 2 + 0.04]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[outerW * 0.94, 0.09]} />
-        <meshStandardMaterial ref={stripFront} transparent opacity={0.95} />
-      </mesh>
-      <mesh position={[0, deckY - deckH / 2 - 0.06, -outerD / 2 - 0.04]} rotation={[-Math.PI / 2, 0, Math.PI]}>
-        <planeGeometry args={[outerW * 0.94, 0.09]} />
-        <meshStandardMaterial ref={stripBack} transparent opacity={0.95} />
-      </mesh>
-      <mesh position={[-outerW / 2 - 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
-        <planeGeometry args={[outerD * 0.94, 0.09]} />
-        <meshStandardMaterial ref={stripLeft} transparent opacity={0.95} />
-      </mesh>
-      <mesh position={[outerW / 2 + 0.04, deckY - deckH / 2 - 0.06, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]}>
-        <planeGeometry args={[outerD * 0.94, 0.09]} />
-        <meshStandardMaterial ref={stripRight} transparent opacity={0.95} />
-      </mesh>
-
-      {/* desk */}
-      <mesh position={[0, DESK_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[90, 90]} />
-        <meshStandardMaterial color="#e4e6ec" roughness={0.85} />
+      <mesh position={[0, DESK_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow={shadow}>
+        <planeGeometry args={[lowPower ? 40 : 90, lowPower ? 40 : 90]} />
+        {lowPower
+          ? <meshBasicMaterial color="#e4e6ec" />
+          : <meshStandardMaterial color="#e4e6ec" roughness={0.85} />}
       </mesh>
     </group>
   );
 }
 
-function Rig({ maxW, totalD }) {
+function Rig({ maxW, totalD, lowPower }) {
   return (
     <>
-      <ambientLight intensity={0.65} color="#ffffff" />
-      <directionalLight
-        position={[6, 14, 5]}
-        intensity={1.15}
-        color="#ffffff"
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-14}
-        shadow-camera-right={14}
-        shadow-camera-top={14}
-        shadow-camera-bottom={-14}
-      />
-      <pointLight position={[0, 8, 4]} intensity={0.25} color="#ffffff" />
-      <KeyboardFrame maxW={maxW} totalD={totalD} />
+      <ambientLight intensity={lowPower ? 1 : 0.65} color="#ffffff" />
+      {!lowPower && (
+        <>
+          <directionalLight
+            position={[6, 14, 5]}
+            intensity={1.15}
+            color="#ffffff"
+            castShadow
+            shadow-mapSize={[2048, 2048]}
+            shadow-camera-left={-14}
+            shadow-camera-right={14}
+            shadow-camera-top={14}
+            shadow-camera-bottom={-14}
+          />
+          <pointLight position={[0, 8, 4]} intensity={0.25} color="#ffffff" />
+        </>
+      )}
+      <KeyboardFrame maxW={maxW} totalD={totalD} lowPower={lowPower} />
     </>
   );
 }
 
-/** Auto-fit camera so the full keyboard + frame is visible (desk-wide shot). */
+/** Auto-fit camera — adapts to viewport size and orientation. */
 function FitCamera({ maxW, totalD }) {
-  const { camera } = useThree();
+  const { camera, size, invalidate } = useThree();
+
   useEffect(() => {
+    const aspect = size.width / Math.max(size.height, 1);
+    const portrait = aspect < 1;
+    const narrow = size.width < 768;
+
     const halfW = maxW / 2 + 1.05;
     const halfD = totalD / 2 + 1.25;
     const span = Math.max(halfW, halfD);
-    const zoom = 0.85; // 15% closer
-    // Higher Y, lower Z → flatter bird's-eye (not straight down)
+
+    let zoom = 0.85;
+    if (portrait) zoom = 1.22;
+    else if (narrow) zoom = 0.95;
+
     camera.position.set(0, span * 2.2 * zoom, span * 0.38 * zoom);
     camera.lookAt(0, 0, 0);
     if (camera.isPerspectiveCamera) {
-      camera.fov = 36;
+      camera.fov = portrait ? 46 : narrow ? 38 : 36;
       camera.updateProjectionMatrix();
     }
-  }, [camera, maxW, totalD]);
+    invalidate();
+  }, [camera, maxW, totalD, size.width, size.height, invalidate]);
   return null;
 }
 
@@ -495,14 +553,26 @@ export default function KeyboardScene({
   grid, gameStatus, exploded, pressed, onPress, keyPositionsRef,
 }) {
   const { keys, maxW, totalD } = useLayout();
+  const lowPower = useLowPower();
 
   return (
     <div className="kb3d">
-      <Canvas shadows camera={{ fov: 36, near: 0.1, far: 120 }} dpr={[1, 2]}>
+      <Canvas
+        shadows={!lowPower}
+        dpr={lowPower ? 1 : [1, 2]}
+        frameloop={lowPower ? 'demand' : 'always'}
+        gl={{
+          antialias: !lowPower,
+          powerPreference: 'high-performance',
+          stencil: false,
+        }}
+        camera={{ fov: 36, near: 0.1, far: lowPower ? 60 : 120 }}
+      >
         <color attach="background" args={['#f0f1f5']} />
-        <fog attach="fog" args={['#f0f1f5', 35, 75]} />
+        {!lowPower && <fog attach="fog" args={['#f0f1f5', 35, 75]} />}
         <FitCamera maxW={maxW} totalD={totalD} />
-        <Rig maxW={maxW} totalD={totalD} />
+        {lowPower && <DemandDriver exploded={exploded} pressed={pressed} />}
+        <Rig maxW={maxW} totalD={totalD} lowPower={lowPower} />
         {keyPositionsRef && <KeyProjector keys={keys} positionsRef={keyPositionsRef} />}
         {keys.map((k) => (
           <Keycap
@@ -513,6 +583,7 @@ export default function KeyboardScene({
             exploded={exploded}
             pressed={pressed}
             onPress={onPress}
+            lowPower={lowPower}
           />
         ))}
       </Canvas>

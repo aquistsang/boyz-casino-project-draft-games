@@ -1053,6 +1053,270 @@ button.pill:hover:not(:disabled):not(.on) {
 
 .info-btn:hover { color: #dfff5e; border-color: #dfff5e; }
 
+@media (max-width: 768px) {
+  body {
+    background: #e8eaef;
+  }
+
+  #root {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
+  }
+
+  .chassis {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 8px;
+    overflow: visible;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .oled-bar {
+    grid-template-columns: 1fr;
+    text-align: center;
+    gap: 8px;
+    margin: 8px;
+    padding: 10px 12px;
+  }
+
+  .brand h1 { font-size: 1.1rem; }
+  .brand p { font-size: 0.55rem; }
+
+  .hint.hint--center {
+    font-size: 0.95rem;
+    line-height: 1.3;
+    padding: 0 4px;
+  }
+
+  .oled-bar__right { justify-self: center; }
+
+  .info-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .mode-pill button {
+    padding: 8px 14px;
+    font-size: 0.72rem;
+  }
+
+  .rotate-hint {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 8px 8px;
+    padding: 10px 12px;
+    background: #1a1a1e;
+    border: 1px solid #dfff5e;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  }
+
+  .rotate-hint__icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  .rotate-hint__text {
+    flex: 1;
+    font-family: var(--font-ui);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.35;
+    text-align: left;
+  }
+
+  .rotate-hint__dismiss {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: #dfff5e;
+    color: #141418;
+    font-family: var(--font-ui);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .track {
+    margin: 0 8px 8px;
+    padding: 6px 8px;
+  }
+
+  .track__nav {
+    width: 36px;
+    height: 36px;
+  }
+
+  .track-pill {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+  }
+
+  .kb-stage {
+    margin: 0 8px 6px;
+  }
+
+  .kb3d {
+    height: min(48vh, 380px);
+    min-height: 260px;
+    border-radius: 6px;
+  }
+
+  .diamond-counter {
+    top: 8px;
+    left: 8px;
+    padding: 8px 12px 8px 8px;
+  }
+
+  .diamond-counter__gem { font-size: 1.25rem; }
+  .diamond-counter__n { font-size: 1rem; }
+
+  .actions {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 0 8px 8px;
+  }
+
+  .act {
+    padding: 14px 12px;
+    font-size: 0.72rem;
+    min-height: 48px;
+  }
+
+  .act--start,
+  .act--new,
+  .act--cash {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .act--random { justify-self: stretch; }
+
+  .msg {
+    font-size: 0.75rem;
+    padding: 4px 8px 8px;
+  }
+
+  .stats-bar {
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0 8px 6px;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .stats-bar__controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .pill-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .pill-row__lbl {
+    font-size: 0.8rem;
+    min-width: 0;
+  }
+
+  .pill {
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    min-height: 40px;
+  }
+
+  .stats-bar__readouts {
+    margin-left: 0;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .stat { flex: 1; text-align: center; }
+
+  .pf-wrap {
+    position: static;
+    display: flex;
+    justify-content: center;
+    margin: 4px 8px 12px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pf-panel {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(340px, calc(100vw - 32px));
+  }
+
+  .instr-overlay { backdrop-filter: none; }
+
+  .diamond-counter__gem { animation: none; }
+  .diamond-fly { filter: none; }
+}
+
+/* Landscape phones — wider viewport suits the keyboard layout better */
+@media (max-width: 768px) and (orientation: landscape) {
+  #root { padding: 4px max(4px, env(safe-area-inset-right)) 4px max(4px, env(safe-area-inset-left)); }
+
+  .oled-bar {
+    margin: 4px 8px;
+    padding: 6px 10px;
+    grid-template-columns: auto 1fr auto;
+    text-align: left;
+  }
+
+  .brand h1 { font-size: 0.95rem; }
+  .brand p { display: none; }
+  .hint.hint--center { font-size: 0.82rem; }
+
+  .kb3d {
+    height: min(62vh, 300px);
+    min-height: 200px;
+  }
+
+  .actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .act--start,
+  .act--cash,
+  .act--new {
+    grid-column: auto;
+  }
+
+  .act {
+    padding: 10px 8px;
+    min-height: 44px;
+    font-size: 0.68rem;
+  }
+
+  .stats-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
+
+  .stats-bar__controls {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .pill-row { flex-direction: row; align-items: center; }
+}
+
 @media (max-width: 600px) {
   .oled-bar { grid-template-columns: 1fr; text-align: center; }
   .oled-bar--compact .mode-pill { justify-self: center; }
